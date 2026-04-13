@@ -1,3 +1,4 @@
+import API_weatherOpenF1
 import db_insert
 import requests
 
@@ -37,6 +38,9 @@ def data_manipulation(sessions):
 
         #inserir dados no banco
         db_insert.inserir_Session(propriedades)
+
+        #Realizar a consulta do clima na session
+        API_weatherOpenF1.weather_api(each['session_key'])
 
 #Realiza a consulta na api
 def sessions_api():

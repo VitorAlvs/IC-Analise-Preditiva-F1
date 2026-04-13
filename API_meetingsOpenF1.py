@@ -16,7 +16,8 @@ def meeting_to_properties(each):
         'date_start':           each['date_start'],
         'date_end':             each['date_end'],
         'gmt_offset':           each['gmt_offset'],
-        'year':                 each['year']
+        'year':                 each['year'],
+        'API key':              each['meeting_key']
     }
 
 #Filtra e organiza os dados

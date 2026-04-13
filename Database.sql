@@ -32,6 +32,7 @@ CREATE TABLE TB_Meeting (
     date_end DATETIMEOFFSET,
     gmt_offset VARCHAR(10),
     year INT,
+    Meeting_API_Key INT,
     CONSTRAINT FK_Meeting_Circuit FOREIGN KEY (ID_Circuit) REFERENCES TB_Circuit(ID_Circuit)
 );
 
@@ -61,4 +62,20 @@ CREATE TABLE TB_Session (
     CONSTRAINT FK_Session_Meeting FOREIGN KEY (ID_Meeting) REFERENCES TB_Meeting(ID_Meeting),
     CONSTRAINT FK_Session_Type FOREIGN KEY (ID_SessionType) REFERENCES TB_SessionType(ID_SessionType),
     CONSTRAINT FK_Session_Name FOREIGN KEY (ID_SessionName) REFERENCES TB_SessionName(ID_SessionName)
+);
+
+--8. Criação da tabela TB_Weather (depende de TB_Session)
+CREATE TABLE TB_Weather (
+    ID_Weather INT IDENTITY(1,1) PRIMARY KEY,
+    ID_Session INT, 
+    date DATETIMEOFFSET,
+    air_temperature DECIMAL(5,2),   
+    track_temperature DECIMAL(5,2), 
+    humidity TINYINT,               
+    pressure DECIMAL(6,2),          
+    wind_direction SMALLINT,        
+    wind_speed DECIMAL(5,2),        
+    rainfall TINYINT,               
+    
+    CONSTRAINT FK_Weather_Session FOREIGN KEY (ID_Session) REFERENCES TB_Session(ID_Session)
 );

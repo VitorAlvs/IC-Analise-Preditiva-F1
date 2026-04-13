@@ -4,7 +4,7 @@ from pyodbc import connect
 
 conn_str = (
     "DRIVER={ODBC Driver 18 for SQL Server};"
-    "SERVER=localhost;"
+    "SERVER=localhost\\SQLEXPRESS;"
     "DATABASE=F1Data;"
     "Trusted_Connection=yes;"
     "TrustServerCertificate=yes;"
@@ -97,6 +97,7 @@ def inserir_Meeting(properties):
     date_end                = properties['date_end']
     gmt_offset              = properties['gmt_offset']
     year                    = properties['year']
+    api_key                 = properties['API key']
 
     #verificar Country
     country_id  = buscar_inserir_Country(country_name, country_code)
@@ -114,8 +115,8 @@ def inserir_Meeting(properties):
         meeting_id = cursor.fetchone()
 
         if meeting_id is None:
-            insert_meeting  = 'INSERT INTO TB_meeting (ID_Circuit, meeting_name, meeting_oficial_name, date_start, date_end, gmt_offset, year) VALUES (?,?,?,?,?,?,?)'
-            cursor.execute(insert_meeting, (circuit_id, meeting_name,meeting_oficial_name, date_start,date_end, gmt_offset, year))
+            insert_meeting  = 'INSERT INTO TB_meeting (ID_Circuit, meeting_name, meeting_oficial_name, date_start, date_end, gmt_offset, year, Meeting_API_Key) VALUES (?,?,?,?,?,?,?,?)'
+            cursor.execute(insert_meeting, (circuit_id, meeting_name,meeting_oficial_name, date_start,date_end, gmt_offset, year, api_key))
             connection.commit()
             return
         else:
@@ -197,8 +198,13 @@ def inserir_Session(properties):
 
     try:
         
-        select_session_id = 'SELECT ID_Session FROM TB_Session WHERE ID_Meeting = ? AND year = ?'
-        cursor.execute(select_session_id, (meeting_id, year))
+        if api_key is not None:
+            select_session_id = 'SELECT ID_Session FROM TB_Session WHERE Session_API_Key = ?'
+            cursor.execute(select_session_id, (api_key,))
+        else:
+            select_session_id = 'SELECT ID_Session FROM TB_Session WHERE ID_Meeting = ? AND ID_SessionName = ? AND date_start = ? AND year = ?'
+            cursor.execute(select_session_id, (meeting_id, sessionName_id, date_start, year))
+
         session_row = cursor.fetchone()
 
         if session_row is None:
@@ -213,4 +219,6 @@ def inserir_Session(properties):
         connection.rollback()
         raise
 
-   
+#Inserir weather
+def inserir_Weather(properties):
+    print(f'{properties}\n')
