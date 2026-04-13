@@ -4,10 +4,13 @@ from pyodbc import connect
 
 conn_str = (
     "DRIVER={ODBC Driver 18 for SQL Server};"
-    "SERVER=localhost\\SQLEXPRESS;"
-    "DATABASE=F1Data;"
-    "Trusted_Connection=yes;"
-    "TrustServerCertificate=yes;"
+    "SERVER=sql-f1-ic-br.database.windows.net;"
+    "DATABASE=db_f1_analytics ;"  
+    "UID=sysadmin;"          
+    "PWD=!o)h7+<qw`*14G;"
+    "Encrypt=yes;"
+    "TrustServerCertificate=no;"
+    "Connection Timeout=30;"
 )
 connection = connect(conn_str)
 cursor = connection.cursor()
@@ -219,6 +222,22 @@ def inserir_Session(properties):
         connection.rollback()
         raise
 
+#Buscar Session por api_key
+def buscar_SessionID(api_key):
+
+    try:
+
+        select_sessionID = 'SELECT ID_Session FROM TB_Session WHERE Session_API_Key = ?'
+        cursor.execute(select_sessionID, (api_key,))
+        session_row = cursor.fetchone()
+        
+        return session_row[0] if session_row is not None else None
+        
+    except pyodbc.Error as error:
+        connection.rollback()
+        raise
+
+
 #Inserir weather
 def inserir_Weather(properties):
-    print(f'{properties}\n')
+    pass
