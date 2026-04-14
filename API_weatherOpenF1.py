@@ -18,7 +18,7 @@ def data_manipulation(weather):
         #Consultar id_session no banco
         id_session = db_insert.buscar_SessionID(api_session_key)
 
-        processed_weather.add(processed_weather)
+        processed_weather.add(weather_key)
 
         propriedades  = {
             'id_session'          : id_session,  
@@ -31,6 +31,8 @@ def data_manipulation(weather):
             'pressure'            : each['pressure'],
             'wind_direction'      : each['wind_direction']         
         }
+        
+        db_insert.inserir_Weather(propriedades)
 
 #Realiza a consulta na api
 def weather_api(session_key):
@@ -38,7 +40,10 @@ def weather_api(session_key):
     response = requests.get(f'{url_OpenF1}weather?session_key={session_key}')
     if response.status_code == 200:
         dados_json = response.json()
+        print(f'      [WEATHER] Registros recebidos: {len(dados_json)} | session_key={session_key}')
 
         return data_manipulation(dados_json)
+
+    print(f'      [WEATHER] Falha na consulta. Status: {response.status_code} | session_key={session_key}')
 
     

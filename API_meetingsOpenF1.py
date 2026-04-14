@@ -10,7 +10,6 @@ def meeting_to_properties(each):
         'circuit type':         each['circuit_type'],
         'location':             each['location'],
         'country name':         each['country_name'],
-        'country_code':         each['country_code'],
         'meeting_name':         each['meeting_name'],
         'meeting_oficial_name': each['meeting_official_name'],
         'date_start':           each['date_start'],
@@ -29,7 +28,7 @@ def data_manipulation(meeting):
         year            = each['year']
         meeting_key     = (meeting_name, year)
 
-        # Evita duplicidade apenas dentro do mesmo ano
+        #Evita duplicidade apenas dentro do mesmo ano
         if meeting_key in processed_meetings:
             continue
 
@@ -37,6 +36,7 @@ def data_manipulation(meeting):
         propriedades = meeting_to_properties(each)
 
         #inserir dados no banco
+        print(f'[MEETING] Inserindo dados da meeting: {meeting_name} ({year})')
         db_insert.inserir_Meeting(propriedades)
 
 
@@ -64,9 +64,13 @@ def buscar_meeting_por_ano_pais(year, country_name):
 
 #Realiza a consulta na api
 def meetings_all():
-    
+
+    print('[MEETING] Iniciando carga de meetings...')
     response = requests.get(f'{url_OpenF1}meetings')
     if response.status_code == 200:
         dados_json = response.json()
-        
+        print(f'[MEETING] Total de meetings retornadas: {len(dados_json)}')
+
         return data_manipulation(dados_json)
+
+    print(f'[MEETING] Falha na consulta de meetings. Status: {response.status_code}')
