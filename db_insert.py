@@ -362,9 +362,9 @@ def buscar_inserir_Driver(id_country, driver_number, first_name, last_name, full
 
         if row is None:
             print(f'      [DB][DRIVER] Nao encontrado. Inserindo driver={full_name} | numero={driver_number}')
-            insert_driver = 'INSERT INTO TB_Driver (ID_Country, driver_number, first_name, last_name, full_name, name_acronym) VALUES (?,?,?,?,?,?)'
+            insert_driver = 'INSERT INTO TB_Driver (driver_number, first_name, last_name, full_name, name_acronym) VALUES (?,?,?,?,?)'
             cursor.execute(insert_driver, (
-                id_country, driver_number, first_name, last_name, full_name, name_acronym
+                driver_number, first_name, last_name, full_name, name_acronym
             ))
             cursor.execute('SELECT CAST(SCOPE_IDENTITY() AS INT)')
             inserted_id = cursor.fetchone()[0]

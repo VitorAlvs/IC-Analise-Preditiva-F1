@@ -81,7 +81,6 @@ CREATE TABLE TB_Weather (
 -- 9. Criação da tabela TB_Driver (Depende de TB_Country)
 CREATE TABLE TB_Driver (
     ID_Driver INT IDENTITY(1,1) PRIMARY KEY,
-    ID_Country INT NOT NULL, 
     driver_number INT NOT NULL,
     first_name VARCHAR(50) NOT NULL,
     last_name VARCHAR(50) NOT NULL,
