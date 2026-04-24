@@ -5,7 +5,7 @@ from pyodbc import connect
 conn_str = (
     "DRIVER={ODBC Driver 18 for SQL Server};"
     "SERVER=sql-f1-ic-br.database.windows.net;"
-    "DATABASE=db_f1_analytics ;"  
+    "DATABASE=db_f1_analytics;"  
     "UID=sysadmin;"          
     "PWD=!o)h7+<qw`*14G;"
     "Encrypt=yes;"
@@ -13,8 +13,14 @@ conn_str = (
     "Connection Timeout=30;"
 )
 
-connection = connect(conn_str)
-cursor = connection.cursor()
+try:
+    connection = connect(conn_str)
+except pyodbc.OperationalError as e:
+    print(f"[DB] Connection failed: {e}")
+    print("[DB] Ensure SQL Server is running and accessible")
+    connection = None
+
+cursor = connection.cursor() if connection else None
 
 #buscar e/ou inserir Country
 def buscar_inserir_Country(country_name):
