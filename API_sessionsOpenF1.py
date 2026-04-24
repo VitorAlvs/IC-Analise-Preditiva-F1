@@ -1,87 +1,112 @@
+# API_sessionsOpenF1.py
+import logging
+import time
+import requests
+import db_insert
 import API_weatherOpenF1
 import API_DriversOpenF1
 import API_sessionresultOpenF1
-import db_insert
-import requests
+from config import OPENF1_BASE_URL, REQUEST_TIMEOUT, REQUEST_MAX_RETRIES, REQUEST_BACKOFF_BASE
+from datetime import datetime, timezone 
 
-url_OpenF1 = 'https://api.openf1.org/v1/'
+logger = logging.getLogger(__name__)
 
 
-#Filtra e organiza os dados
-def data_manipulation(sessions):
+def _api_get(url, params=None):
+    for attempt in range(REQUEST_MAX_RETRIES):
+        try:
+            response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
+            if response.status_code == 200:
+                return response.json()
+            if response.status_code == 429:
+                wait = REQUEST_BACKOFF_BASE ** attempt
+                logger.warning('[API] Rate limit. Aguardando %ss.', wait)
+                time.sleep(wait)
+                continue
+            logger.error('[API] Falha HTTP %s | url=%s', response.status_code, url)
+            return None
+        except requests.exceptions.Timeout:
+            logger.error('[API] Timeout | url=%s', url)
+        except requests.exceptions.RequestException as e:
+            logger.error('[API] Erro: %s', e)
+        time.sleep(REQUEST_BACKOFF_BASE ** attempt)
+    raise RuntimeError('[API] Falha apos {} tentativas | url={}'.format(REQUEST_MAX_RETRIES, url)) 
+
+def _data_manipulation(sessions):
     processed_sessions = set()
-    processed_meetings = set()
-
     for each in sessions:
-        session_name      = each['session_name']
-        location          = each['location']
-        year              = each['year']
-        meeting_name      = each.get('meeting_name')
-        country_name      = each.get('country_name')
-        meeting_api_key   = each.get('meeting_key')
-        meeting_label     = meeting_name if meeting_name else f'meeting_key={meeting_api_key}'
-        meeting_check     = (meeting_api_key, country_name, year)
-        session_key_check = (session_name, location, year)
-
-        if session_key_check in processed_sessions:
+        session_api_key = each.get('session_key')
+        if session_api_key in processed_sessions:
             continue
+        processed_sessions.add(session_api_key)
 
-        processed_sessions.add(session_key_check)
+        year         = each.get('year')
+        session_name = each.get('session_name', 'Unknown')
+        location     = each.get('location', 'Unknown')
 
-        if meeting_check not in processed_meetings:
-            if country_name:
-                print(f'[MEETING] Inserindo dados da meeting: {meeting_label} | country={country_name} ({year})')
-            else:
-                print(f'[MEETING] Inserindo dados da meeting: {meeting_label} ({year})')
+        # ── Ignora sessões futuras ────────────────────────────────────────────
+        date_start_raw = each.get('date_start')
+        if date_start_raw:
+            try:
+                # A API retorna formato ISO 8601 com offset (ex: "2026-05-02T11:30:00+00:00")
+                date_start = datetime.fromisoformat(date_start_raw)
+                # Garante que now() tenha timezone para comparação
+                now = datetime.now(timezone.utc).astimezone(date_start.tzinfo)
+                if date_start > now:
+                    logger.info(
+                        '[SESSION] Sessao futura ignorada: %s | %s | %s (data_start=%s)',
+                        session_name, location, year, date_start_raw
+                    )
+                    continue
+            except ValueError:
+                logger.warning('[SESSION] Nao foi possivel interpretar date_start=%s', date_start_raw)
+        # ─────────────────────────────────────────────────────────────────────
 
-            processed_meetings.add(meeting_check)
+        logger.info('[SESSION] Processando: %s | %s | %s', session_name, location, year)
 
-        print(f'  [SESSION] Inserindo dados da session: {session_name} | {location} | {year}')
-
-        propriedades = {
-            'session type':         each['session_type'],
-            'session name':         each['session_name'],
-            'location':             each['location'],
-            'circuit name':         each.get('circuit_short_name'),
-            'circuit type':         each.get('circuit_type'),
-            'country name':         each.get('country_name'),
-            'meeting_name':         each.get('meeting_name'),
-            'meeting_oficial_name': each.get('meeting_official_name'),
-            'meeting key':          each.get('meeting_key'),
-            'date start':           each['date_start'],
-            'date end':             each['date_end'],
-            'gmt_offset':           each['gmt_offset'],
-            'API key':              each['session_key'],
-            'year':                 year
+        props = {
+            'session_type':          each.get('session_type', 'Unknown'),
+            'session_name':          session_name,
+            'location':              location,
+            'circuit_short_name':    each.get('circuit_short_name'),
+            'circuit_type':          each.get('circuit_type'),
+            'country_name':          each.get('country_name'),
+            'meeting_name':          each.get('meeting_name'),
+            'meeting_official_name': each.get('meeting_official_name'),
+            'meeting_key':           each.get('meeting_key'),
+            'date_start':            date_start_raw,
+            'date_end':              each.get('date_end'),
+            'gmt_offset':            each.get('gmt_offset', '+00:00'),
+            'api_key':               session_api_key,
+            'year':                  year,
         }
 
-        id_session = db_insert.inserir_Session(propriedades)
-
+        id_session = db_insert.inserir_Session(props)
         if id_session is None:
-            print('    [SESSION] Sessao ignorada: meeting nao encontrada para vinculo.')
+            logger.warning('[SESSION] Ignorada: meeting nao encontrada | session_key=%s', session_api_key)
             continue
 
-        print('    [WEATHER] Inserindo dados de clima da sessao...')
-        API_weatherOpenF1.weather_api(each['session_key'])
+        logger.info('[WEATHER] Carregando clima | session_key=%s', session_api_key)
+        API_weatherOpenF1.weather_api(session_api_key, id_session)
 
-        print('    [DRIVERS] Inserindo dados de pilotos/equipes da sessao...')
-        drivers_map = API_DriversOpenF1.drivers_api(each['session_key'], year)
+        logger.info('[DRIVERS] Carregando pilotos/equipes | session_key=%s', session_api_key)
+        drivers_map = API_DriversOpenF1.drivers_api(session_api_key, year)
 
-        print('    [RESULT] Inserindo resultado da sessao...')
-        API_sessionresultOpenF1.session_result_api(
-            each['session_key'],
-            id_session,
-            drivers_map
-        )
+        logger.info('[RESULT] Carregando resultados | session_key=%s', session_api_key)
+        API_sessionresultOpenF1.session_result_api(session_api_key, id_session, drivers_map)
+        API_sessionresultOpenF1.session_result_api(session_api_key, id_session, drivers_map)
 
 
-#Realiza a consulta na api
-def sessions_api():
-    print('[SESSION] Iniciando carga de sessions...')
-    response = requests.get(f'{url_OpenF1}sessions')
-    if response.status_code == 200:
-        dados_json = response.json()
-        print(f'[SESSION] Total de sessions retornadas: {len(dados_json)}')
-        return data_manipulation(dados_json)
-
-    print(f'[SESSION] Falha na consulta de sessions. Status: {response.status_code}')
+def sessions_api(year=None, meeting_key=None):
+    logger.info('[SESSION] Iniciando carga de sessions...')
+    params = {}
+    if year:
+        params['year'] = year
+    if meeting_key:
+        params['meeting_key'] = meeting_key
+    dados = _api_get(OPENF1_BASE_URL + 'sessions', params=params)
+    if dados is None:
+        logger.error('[SESSION] Nenhum dado recebido da API.')
+        return
+    logger.info('[SESSION] Total retornado: %s', len(dados))
+    _data_manipulation(dados)

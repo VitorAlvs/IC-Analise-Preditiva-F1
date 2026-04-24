@@ -1,49 +1,57 @@
-import db_insert
+# API_weatherOpenF1.py
+import logging
+import time
 import requests
+import db_insert
+from config import OPENF1_BASE_URL, REQUEST_TIMEOUT, REQUEST_MAX_RETRIES, REQUEST_BACKOFF_BASE
 
-url_OpenF1 = 'https://api.openf1.org/v1/'
+logger = logging.getLogger(__name__)
 
-#Filtra e organiza os dados
-def data_manipulation(weather):
-    processed_weather = set()
 
-    for each in weather:
-        api_session_key     = each['session_key']
-        api_meeting_key     = each['meeting_key']
-        weather_key         = (api_session_key, api_meeting_key)
+def _api_get(url, params=None):
+    for attempt in range(REQUEST_MAX_RETRIES):
+        try:
+            response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
+            if response.status_code == 200:
+                return response.json()
+            if response.status_code == 429:
+                wait = REQUEST_BACKOFF_BASE ** attempt
+                logger.warning('[API] Rate limit. Aguardando %ss.', wait)
+                time.sleep(wait)
+                continue
+            logger.error('[API] Falha HTTP %s | url=%s', response.status_code, url)
+            return None
+        except requests.exceptions.Timeout:
+            logger.error('[API] Timeout | url=%s', url)
+        except requests.exceptions.RequestException as e:
+            logger.error('[API] Erro: %s', e)
+        time.sleep(REQUEST_BACKOFF_BASE ** attempt)
+    raise RuntimeError('[API] Falha apos {} tentativas | url={}'.format(REQUEST_MAX_RETRIES, url))
 
-        if weather_key in processed_weather:
-            continue
 
-        #Consultar id_session no banco
-        id_session = db_insert.buscar_SessionID(api_session_key)
-
-        processed_weather.add(weather_key)
-
-        propriedades  = {
-            'id_session'          : id_session,  
-            'date'                : each['date'],
-            'humidity'            : each['humidity'],
-            'wind_speed'          : each['wind_speed'],
-            'air_temperature'     : each['air_temperature'],
-            'rainfall'            : each['rainfall'],
-            'track_temperature'   : each['track_temperature'],
-            'pressure'            : each['pressure'],
-            'wind_direction'      : each['wind_direction']         
+def _data_manipulation(weather_records, id_session):
+    inserted = 0
+    for each in weather_records:
+        props = {
+            'id_session':        id_session,
+            'date':              each.get('date'),
+            'humidity':          each.get('humidity'),
+            'wind_speed':        each.get('wind_speed'),
+            'air_temperature':   each.get('air_temperature'),
+            'rainfall':          each.get('rainfall'),
+            'track_temperature': each.get('track_temperature'),
+            'pressure':          each.get('pressure'),
+            'wind_direction':    each.get('wind_direction'),
         }
-        
-        db_insert.inserir_Weather(propriedades)
+        db_insert.inserir_Weather(props)
+        inserted += 1
+    logger.info('[WEATHER] %s registros processados | id_session=%s', inserted, id_session)
 
-#Realiza a consulta na api
-def weather_api(session_key):
 
-    response = requests.get(f'{url_OpenF1}weather?session_key={session_key}')
-    if response.status_code == 200:
-        dados_json = response.json()
-        print(f'      [WEATHER] Registros recebidos: {len(dados_json)} | session_key={session_key}')
-
-        return data_manipulation(dados_json)
-
-    print(f'      [WEATHER] Falha na consulta. Status: {response.status_code} | session_key={session_key}')
-
-    
+def weather_api(session_key, id_session):
+    dados = _api_get(OPENF1_BASE_URL + 'weather', params={'session_key': session_key})
+    if dados is None:
+        logger.error('[WEATHER] Nenhum dado recebido | session_key=%s', session_key)
+        return
+    logger.info('[WEATHER] Registros recebidos: %s | session_key=%s', len(dados), session_key)
+    _data_manipulation(dados, id_session)

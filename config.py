@@ -1,0 +1,5 @@
+# config.py
+OPENF1_BASE_URL = 'https://api.openf1.org/v1/'
+REQUEST_TIMEOUT = 30
+REQUEST_MAX_RETRIES = 3
+REQUEST_BACKOFF_BASE = 2

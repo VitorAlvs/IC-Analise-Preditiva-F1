@@ -1,76 +1,70 @@
-import db_insert
+# API_meetingsOpenF1.py
+import logging
+import time
 import requests
+import db_insert
+from config import OPENF1_BASE_URL, REQUEST_TIMEOUT, REQUEST_MAX_RETRIES, REQUEST_BACKOFF_BASE
 
-url_OpenF1 = 'https://api.openf1.org/v1/'
+logger = logging.getLogger(__name__)
 
 
-def meeting_to_properties(each):
+def _api_get(url, params=None):
+    for attempt in range(REQUEST_MAX_RETRIES):
+        try:
+            response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
+            if response.status_code == 200:
+                return response.json()
+            if response.status_code == 429:
+                wait = REQUEST_BACKOFF_BASE ** attempt
+                logger.warning('[API] Rate limit. Aguardando %ss.', wait)
+                time.sleep(wait)
+                continue
+            logger.error('[API] Falha HTTP %s | url=%s', response.status_code, url)
+            return None
+        except requests.exceptions.Timeout:
+            logger.error('[API] Timeout | url=%s', url)
+        except requests.exceptions.RequestException as e:
+            logger.error('[API] Erro: %s', e)
+        time.sleep(REQUEST_BACKOFF_BASE ** attempt)
+    raise RuntimeError('[API] Falha apos {} tentativas | url={}'.format(REQUEST_MAX_RETRIES, url))
+
+
+def _meeting_to_properties(each):
     return {
-        'circuit name':         each['circuit_short_name'],
-        'circuit type':         each['circuit_type'],
-        'location':             each['location'],
-        'country name':         each['country_name'],
-        'meeting_name':         each['meeting_name'],
-        'meeting_oficial_name': each['meeting_official_name'],
-        'date_start':           each['date_start'],
-        'date_end':             each['date_end'],
-        'gmt_offset':           each['gmt_offset'],
-        'year':                 each['year'],
-        'API key':              each['meeting_key']
+        'circuit_short_name':    each.get('circuit_short_name', 'Unknown'),
+        'circuit_type':          each.get('circuit_type', 'Unknown'),
+        'location':              each.get('location', 'Unknown'),
+        'country_name':          each.get('country_name', 'Unknown'),
+        'meeting_name':          each.get('meeting_name', 'Unknown'),
+        'meeting_official_name': each.get('meeting_official_name', ''),
+        'date_start':            each.get('date_start'),
+        'date_end':              each.get('date_end'),
+        'gmt_offset':            each.get('gmt_offset', '+00:00'),
+        'year':                  each.get('year'),
+        'api_key':               each.get('meeting_key'),
     }
 
-#Filtra e organiza os dados
-def data_manipulation(meeting):
-    processed_meetings = set()
 
-    for each in meeting:
-        meeting_name    = each['meeting_name']
-        year            = each['year']
-        meeting_key     = (meeting_name, year)
-
-        #Evita duplicidade apenas dentro do mesmo ano
-        if meeting_key in processed_meetings:
-            continue
-
-        processed_meetings.add(meeting_key)
-        propriedades = meeting_to_properties(each)
-
-        #inserir dados no banco
-        print(f'[MEETING] Inserindo dados da meeting: {meeting_name} ({year})')
-        db_insert.inserir_Meeting(propriedades)
-
-
-def buscar_meeting_por_ano_pais(year, country_name):
-    if not year or not country_name:
-        return False
-
-    response = requests.get(
-        f'{url_OpenF1}meetings',
-        params={'year': year, 'country_name': country_name}
-    )
-    if response.status_code != 200:
-        return False
-
-    meetings = response.json()
-    if not meetings:
-        return False
-
+def _data_manipulation(meetings):
+    processed = set()
     for each in meetings:
-        propriedades = meeting_to_properties(each)
-        db_insert.inserir_Meeting(propriedades)
+        meeting_key = each.get('meeting_key')
+        if meeting_key in processed:
+            continue
+        processed.add(meeting_key)
+        props = _meeting_to_properties(each)
+        logger.info('[MEETING] Processando: %s (%s)', props['meeting_name'], props['year'])
+        db_insert.inserir_Meeting(props)
 
-    return True
-        
 
-#Realiza a consulta na api
-def meetings_all():
-
-    print('[MEETING] Iniciando carga de meetings...')
-    response = requests.get(f'{url_OpenF1}meetings')
-    if response.status_code == 200:
-        dados_json = response.json()
-        print(f'[MEETING] Total de meetings retornadas: {len(dados_json)}')
-
-        return data_manipulation(dados_json)
-
-    print(f'[MEETING] Falha na consulta de meetings. Status: {response.status_code}')
+def meetings_all(year=None):
+    logger.info('[MEETING] Iniciando carga de meetings...')
+    params = {}
+    if year:
+        params['year'] = year
+    dados = _api_get(OPENF1_BASE_URL + 'meetings', params=params)
+    if dados is None:
+        logger.error('[MEETING] Nenhum dado recebido da API.')
+        return
+    logger.info('[MEETING] Total retornado: %s', len(dados))
+    _data_manipulation(dados)

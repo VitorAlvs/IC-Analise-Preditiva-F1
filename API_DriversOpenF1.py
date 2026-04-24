@@ -1,79 +1,80 @@
-import db_insert
+# API_DriversOpenF1.py
+import logging
+import time
 import requests
+import db_insert
+from config import OPENF1_BASE_URL, REQUEST_TIMEOUT, REQUEST_MAX_RETRIES, REQUEST_BACKOFF_BASE
 
-url_OpenF1 = 'https://api.openf1.org/v1/'
+logger = logging.getLogger(__name__)
 
-#Filtra e organiza os dados
-def data_manipulation(drivers, year):
+
+def _api_get(url, params=None):
+    for attempt in range(REQUEST_MAX_RETRIES):
+        try:
+            response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
+            if response.status_code == 200:
+                return response.json()
+            if response.status_code == 429:
+                wait = REQUEST_BACKOFF_BASE ** attempt
+                logger.warning('[API] Rate limit. Aguardando %ss.', wait)
+                time.sleep(wait)
+                continue
+            logger.error('[API] Falha HTTP %s | url=%s', response.status_code, url)
+            return None
+        except requests.exceptions.Timeout:
+            logger.error('[API] Timeout | url=%s', url)
+        except requests.exceptions.RequestException as e:
+            logger.error('[API] Erro: %s', e)
+        time.sleep(REQUEST_BACKOFF_BASE ** attempt)
+    raise RuntimeError('[API] Falha apos {} tentativas | url={}'.format(REQUEST_MAX_RETRIES, url))
+
+
+def _data_manipulation(drivers, year):
     drivers_map = {}
-
     for each in drivers:
         driver_number = each.get('driver_number')
-        first_name    = each.get('first_name')
-        last_name     = each.get('last_name')
-        full_name     = each.get('full_name')
-        name_acronym  = each.get('name_acronym')
+        if driver_number is None:
+            logger.warning('[DRIVERS] Registro ignorado: driver_number ausente')
+            continue
 
-        country_name  = each.get('country_name')
-
+        full_name    = each.get('full_name')
+        first_name   = each.get('first_name')
+        last_name    = each.get('last_name')
+        name_acronym = each.get('name_acronym')
         team_name    = each.get('team_name')
         team_colour  = each.get('team_colour')
 
-        if driver_number is None:
-            print('      [DRIVERS] Registro ignorado: driver_number ausente')
-            continue
-
-        print(f'      [DRIVERS] Processando driver_number={driver_number} | full_name={full_name}')
-
-        id_country = db_insert.buscar_inserir_Country(country_name)
-        print(f'      [DRIVERS] Country mapeado | id_country={id_country}')
+        logger.info('[DRIVERS] Processando driver_number=%s | full_name=%s', driver_number, full_name)
 
         id_driver = db_insert.buscar_inserir_Driver(
-            id_country,
-            driver_number,
-            first_name,
-            last_name,
-            full_name,
-            name_acronym
+            driver_number, first_name, last_name, full_name, name_acronym
         )
-        print(f'      [DRIVERS] Driver mapeado | id_driver={id_driver}')
-
         id_team = db_insert.buscar_inserir_Team(team_name, team_colour)
-        print(f'      [DRIVERS] Team mapeado | id_team={id_team}')
 
         if id_driver is None or id_team is None:
-            print(f'      [DRIVERS] Nao foi possivel vincular Driver-Team | driver_number={driver_number}')
+            logger.warning('[DRIVERS] Nao foi possivel vincular Driver-Team | driver_number=%s', driver_number)
             continue
 
-        id_driver_team_year = db_insert.buscar_inserir_DriverTeamYear(
-            id_driver,
-            id_team,
-            year
-        )
-
+        id_driver_team_year = db_insert.buscar_inserir_DriverTeamYear(id_driver, id_team, year)
         if id_driver_team_year is None:
-            print(f'      [DRIVERS] DriverTeamYear invalido | driver_number={driver_number}')
+            logger.warning('[DRIVERS] DriverTeamYear invalido | driver_number=%s', driver_number)
             continue
 
-        print(f'      [DRIVERS] DriverTeamYear mapeado | id_driver_team_year={id_driver_team_year}')
-
+        logger.info('[DRIVERS] DriverTeamYear mapeado | id=%s', id_driver_team_year)
         drivers_map[driver_number] = {
-            'ID_Driver'        : id_driver,
-            'ID_Team'          : id_team,
+            'ID_Driver':         id_driver,
+            'ID_Team':           id_team,
             'ID_DriverTeamYear': id_driver_team_year,
-            'full_name'        : full_name,
-            'team_name'        : team_name
+            'full_name':         full_name,
+            'team_name':         team_name,
         }
-
     return drivers_map
 
-#Realiza a consulta na api
-def drivers_api(session_key, year):
-    response = requests.get(f'{url_OpenF1}drivers?session_key={session_key}')
-    if response.status_code == 200:
-        dados_json = response.json()
-        print(f'      [DRIVERS] Registros recebidos: {len(dados_json)} | session_key={session_key}')
-        return data_manipulation(dados_json, year)
 
-    print(f'      [DRIVERS] Falha na consulta. Status: {response.status_code} | session_key={session_key}')
-    return {}
+def drivers_api(session_key, year):
+    dados = _api_get(OPENF1_BASE_URL + 'drivers', params={'session_key': session_key})
+    if dados is None:
+        logger.error('[DRIVERS] Nenhum dado recebido | session_key=%s', session_key)
+        return {}
+    logger.info('[DRIVERS] Registros recebidos: %s | session_key=%s', len(dados), session_key)
+    return _data_manipulation(dados, year)
